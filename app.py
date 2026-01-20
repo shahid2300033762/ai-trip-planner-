@@ -1,66 +1,54 @@
 import streamlit as st
 from datetime import datetime, timedelta
-import random
 import os
 
 # =========================
-# LOAD ENVIRONMENT VARIABLES
+# GOOGLE GEMINI (NEW SDK)
 # =========================
-from dotenv import load_dotenv
-load_dotenv()
+AI_AVAILABLE = False
+client = None
+MODEL_NAME = "gemini-1.5-flash"
 
-# =========================
-# GOOGLE GEMINI AI SETUP
-# =========================
-# GOOGLE GEMINI AI SETUP
 try:
-    import google.generativeai as genai
+    from google import genai
 
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
     if not GOOGLE_API_KEY:
         raise ValueError("GOOGLE_API_KEY not found")
 
-    genai.configure(api_key=GOOGLE_API_KEY)
-
-    # ✅ Correct & supported model
-    model = genai.GenerativeModel("models/gemini-1.5-flash")
-
+    client = genai.Client(api_key=GOOGLE_API_KEY)
     AI_AVAILABLE = True
-    print("✅ AI is connected!")
+    print("✅ Gemini AI connected")
 
 except Exception as e:
     AI_AVAILABLE = False
-    print(f"❌ AI Error: {e}")
-
+    print(f"❌ Gemini init error: {e}")
 
 # =========================
-# PAGE CONFIGURATION
+# PAGE CONFIG
 # =========================
 st.set_page_config(
-    page_title="Student Travel Planner",
+    page_title="AI Student Travel Planner",
     page_icon="🎒",
     layout="wide"
 )
 
 # =========================
-# CUSTOM STYLING
+# STYLES
 # =========================
 st.markdown("""
 <style>
 .big-font {
-    font-size: 50px !important;
+    font-size: 46px;
     font-weight: bold;
     color: #1E88E5;
-    text-align: center;
 }
 .ai-badge {
-    background-color: #4CAF50;
+    background-color: #2e7d32;
     color: white;
-    padding: 8px 16px;
-    border-radius: 20px;
-    font-size: 14px;
-    display: inline-block;
-    margin: 10px 0;
+    padding: 6px 14px;
+    border-radius: 18px;
+    font-size: 13px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -68,20 +56,17 @@ st.markdown("""
 # =========================
 # HEADER
 # =========================
-st.markdown('<p class="big-font">🎒 AI Student Travel Planner</p>', unsafe_allow_html=True)
+st.markdown('<div class="big-font">🎒 AI Student Travel Planner</div>', unsafe_allow_html=True)
 
 if AI_AVAILABLE:
-    st.markdown(
-        '<div style="text-align:center;"><span class="ai-badge">✨ Powered by Google Gemini AI</span></div>',
-        unsafe_allow_html=True
-    )
+    st.markdown('<span class="ai-badge">✨ Powered by Google Gemini AI</span>', unsafe_allow_html=True)
 else:
-    st.warning("⚠️ AI is offline - using backup mode")
+    st.warning("⚠️ AI unavailable – using fallback mode")
 
-st.markdown("---")
+st.divider()
 
 # =========================
-# SIDEBAR INPUT
+# SIDEBAR INPUTS
 # =========================
 with st.sidebar:
     st.header("📝 Trip Details")
@@ -97,101 +82,79 @@ with st.sidebar:
 
     budget = st.slider("💰 Total Budget (USD)", 100, 5000, 1000, 50)
 
-    st.subheader("Preferences")
-
     travel_style = st.selectbox(
         "Travel Style",
         ["Budget Backpacker", "Balanced", "Comfort Seeker"]
     )
 
     interests = st.multiselect(
-        "Your Interests",
-        ["Museums", "Food", "Nature", "Nightlife", "Culture", "Adventure", "Shopping", "History"],
+        "Interests",
+        ["Culture", "Food", "History", "Nature", "Nightlife", "Shopping"],
         default=["Culture", "Food"]
     )
 
-    num_travelers = st.number_input("Number of Travelers", 1, 10, 1)
+    travelers = st.number_input("Number of Travelers", 1, 10, 1)
 
-    st.markdown("---")
-    generate_btn = st.button("🚀 Generate AI Travel Plan", type="primary", use_container_width=True)
+    st.divider()
+    generate = st.button("🚀 Generate AI Travel Plan", use_container_width=True)
 
 # =========================
-# AI FUNCTIONS
+# AI HELPERS
 # =========================
-def get_ai_recommendations(destination, origin, days, budget, interests, travel_style):
+def generate_ai_text(prompt: str) -> str | None:
     if not AI_AVAILABLE:
         return None
+    try:
+        response = client.models.generate_content(
+            model=MODEL_NAME,
+            contents=prompt
+        )
+        return response.text
+    except Exception as e:
+        st.error("❌ AI request failed. Falling back to sample data.")
+        print(e)
+        return None
 
-    prompt = f"""
-You are a student travel expert. Create a budget-friendly travel plan.
+# =========================
+# MAIN LOGIC
+# =========================
+if generate:
+    days = (end_date - start_date).days
+
+    if days <= 0:
+        st.error("End date must be after start date.")
+    else:
+        per_day = budget // days
+
+        with st.spinner("🤖 Generating your travel plan..."):
+            recommendations = generate_ai_text(f"""
+You are a student travel expert.
 
 Destination: {destination}
 From: {origin}
 Duration: {days} days
 Budget: ${budget}
-Travel Style: {travel_style}
-Interests: {', '.join(interests)}
+Travel style: {travel_style}
+Interests: {", ".join(interests)}
 
-Include:
-1. Transportation options with prices
-2. Accommodation options
-3. Must-visit places
-4. Budget food
-5. Money-saving tips
-6. Student discounts
-"""
-    return model.generate_content(prompt).text
+Give:
+• Transport options
+• Accommodation
+• Must-visit places
+• Budget food
+• Student discounts
+""")
 
+            itinerary = generate_ai_text(f"""
+Create a {days}-day student itinerary for {destination}.
+Daily budget: ${per_day}
+Interests: {", ".join(interests)}
+""")
 
-def get_ai_itinerary(destination, days, interests, budget_per_day):
-    if not AI_AVAILABLE:
-        return None
-
-    prompt = f"""
-Create a {days}-day itinerary for {destination}.
-
-Daily Budget: ${budget_per_day}
-Interests: {', '.join(interests)}
-
-For each day include:
-- Morning
-- Lunch
-- Afternoon
-- Evening
-- Daily total cost
-"""
-    return model.generate_content(prompt).text
-
-
-def get_ai_safety_tips(destination):
-    if not AI_AVAILABLE:
-        return None
-
-    prompt = f"""
-Provide safety tips for students traveling to {destination}.
-Include scams, health, emergency numbers, transport safety, and etiquette.
-"""
-    return model.generate_content(prompt).text
-
-# =========================
-# MAIN LOGIC
-# =========================
-if generate_btn:
-    days = (end_date - start_date).days
-
-    if days <= 0:
-        st.error("❌ End date must be after start date")
-    else:
-        budget_per_day = budget // days
-
-        with st.spinner("🤖 Generating your AI travel plan..."):
-            ai_recommendations = get_ai_recommendations(
-                destination, origin, days, budget, interests, travel_style
-            )
-            ai_itinerary = get_ai_itinerary(
-                destination, days, interests, budget_per_day
-            )
-            ai_safety = get_ai_safety_tips(destination)
+            safety = generate_ai_text(f"""
+Give safety tips for students visiting {destination}.
+Include scams, transport safety, emergency tips.
+""")
 
         st.success("✅ Your travel plan is ready!")
 
@@ -204,22 +167,28 @@ if generate_btn:
 
         with tab1:
             st.metric("Duration", f"{days} days")
-            st.metric("Budget", f"${budget}")
-            st.metric("Budget / Day", f"${budget_per_day}")
+            st.metric("Total Budget", f"${budget}")
+            st.metric("Budget / Day", f"${per_day}")
             st.write(f"**Route:** {origin} → {destination}")
             st.write(f"**Interests:** {', '.join(interests)}")
 
         with tab2:
-            if ai_recommendations:
-                st.markdown(ai_recommendations)
+            if recommendations:
+                st.markdown(recommendations)
+            else:
+                st.info("Sample: Budget airlines, hostels, free walking tours.")
 
         with tab3:
-            if ai_itinerary:
-                st.markdown(ai_itinerary)
+            if itinerary:
+                st.markdown(itinerary)
+            else:
+                st.info("Sample itinerary: museums, cafes, local markets.")
 
         with tab4:
-            if ai_safety:
-                st.markdown(ai_safety)
+            if safety:
+                st.markdown(safety)
+            else:
+                st.info("Sample safety tips: avoid scams, keep documents safe.")
 
 else:
     st.info("👈 Fill details in the sidebar and click **Generate AI Travel Plan**")
