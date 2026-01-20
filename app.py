@@ -12,22 +12,26 @@ load_dotenv()
 # =========================
 # GOOGLE GEMINI AI SETUP
 # =========================
+# GOOGLE GEMINI AI SETUP
 try:
     import google.generativeai as genai
 
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-
     if not GOOGLE_API_KEY:
         raise ValueError("GOOGLE_API_KEY not found")
 
     genai.configure(api_key=GOOGLE_API_KEY)
-    model = genai.GenerativeModel("gemini-pro")
+
+    # ✅ Correct & supported model
+    model = genai.GenerativeModel("models/gemini-1.5-flash")
+
     AI_AVAILABLE = True
     print("✅ AI is connected!")
 
 except Exception as e:
     AI_AVAILABLE = False
     print(f"❌ AI Error: {e}")
+
 
 # =========================
 # PAGE CONFIGURATION
