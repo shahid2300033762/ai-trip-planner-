@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import os
 
 # =========================
-# GOOGLE GEMINI (FIXED)
+# GOOGLE GEMINI - FIXED
 # =========================
 AI_AVAILABLE = False
 model = None
@@ -17,12 +17,34 @@ try:
         raise ValueError("GOOGLE_API_KEY not found")
     
     genai.configure(api_key=GOOGLE_API_KEY)
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    AI_AVAILABLE = True
+    
+    # Try different models in order of preference
+    MODEL_OPTIONS = [
+        'gemini-1.5-flash',
+        'gemini-1.5-pro', 
+        'gemini-pro',
+        'gemini-1.0-pro'
+    ]
+    
+    model = None
+    for model_name in MODEL_OPTIONS:
+        try:
+            model = genai.GenerativeModel(model_name)
+            # Test with a simple prompt
+            test = model.generate_content("Hi")
+            if test.text:
+                AI_AVAILABLE = True
+                st.sidebar.success(f"✅ Using: {model_name}")
+                break
+        except:
+            continue
+    
+    if not AI_AVAILABLE:
+        raise ValueError("No working model found")
 
 except Exception as e:
     AI_AVAILABLE = False
-    print(f"❌ Gemini init error: {e}")
+    print(f"❌ Error: {e}")
 
 # =========================
 # PAGE CONFIG
