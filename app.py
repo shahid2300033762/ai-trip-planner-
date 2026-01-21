@@ -3,48 +3,59 @@ from datetime import datetime, timedelta
 import os
 
 # =========================
-# GOOGLE GEMINI - FIXED
+# GOOGLE GEMINI - DISCOVERY MODE
 # =========================
-AI_AVAILABLE = False
-model = None
+@st.cache_resource
+def setup_genai():
+    """Discovers available models to prevent 404 errors."""
+    available_model = None
+    is_ready = False
+    
+    try:
+        import google.generativeai as genai
+        
+        # Get API Key from secrets or environment
+        api_key = st.secrets.get("GOOGLE_API_KEY", os.getenv("GOOGLE_API_KEY"))
+        if not api_key:
+            return None, False
 
-try:
-    import google.generativeai as genai
-    
-    GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY", os.getenv("GOOGLE_API_KEY"))
-    
-    if not GOOGLE_API_KEY:
-        raise ValueError("GOOGLE_API_KEY not found")
-    
-    genai.configure(api_key=GOOGLE_API_KEY)
-    
-    # Try different models in order of preference
-    MODEL_OPTIONS = [
-        'gemini-1.5-flash',
-        'gemini-1.5-pro', 
-        'gemini-pro',
-        'gemini-1.0-pro'
-    ]
-    
-    model = None
-    for model_name in MODEL_OPTIONS:
-        try:
-            model = genai.GenerativeModel(model_name)
-            # Test with a simple prompt
-            test = model.generate_content("Hi")
-            if test.text:
-                AI_AVAILABLE = True
-                st.sidebar.success(f"✅ Using: {model_name}")
+        genai.configure(api_key=api_key)
+
+        # 1. DISCOVERY: Get models actually available to your API Key
+        supported_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        
+        # 2. SELECTION: Prioritize the best available models
+        priority_list = [
+            'models/gemini-1.5-flash-latest',
+            'models/gemini-1.5-flash',
+            'models/gemini-1.5-pro-latest',
+            'models/gemini-pro'
+        ]
+        
+        target_model_name = None
+        for priority in priority_list:
+            if priority in supported_models:
+                target_model_name = priority
                 break
-        except:
-            continue
-    
-    if not AI_AVAILABLE:
-        raise ValueError("No working model found")
+        
+        # Fallback to the first available if priority list fails
+        if not target_model_name and supported_models:
+            target_model_name = supported_models[0]
 
-except Exception as e:
-    AI_AVAILABLE = False
-    print(f"❌ Error: {e}")
+        if target_model_name:
+            available_model = genai.GenerativeModel(target_model_name)
+            # Test ping to ensure the key is active
+            available_model.generate_content("Hi", generation_config={"max_output_tokens": 1})
+            is_ready = True
+            
+        return available_model, is_ready
+
+    except Exception as e:
+        print(f"Discovery Error: {e}")
+        return None, False
+
+# Initialize AI
+model, AI_AVAILABLE = setup_genai()
 
 # =========================
 # PAGE CONFIG
@@ -89,22 +100,6 @@ st.markdown("""
         display: inline-block;
         margin-bottom: 20px;
     }
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        padding: 20px;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-        margin: 10px 0;
-    }
-    .metric-value {
-        font-size: 32px;
-        font-weight: bold;
-    }
-    .metric-label {
-        font-size: 14px;
-        opacity: 0.9;
-    }
     .section-header {
         font-size: 24px;
         font-weight: 600;
@@ -112,13 +107,6 @@ st.markdown("""
         margin: 20px 0 10px 0;
         border-left: 4px solid #1E88E5;
         padding-left: 15px;
-    }
-    .tip-box {
-        background-color: #e3f2fd;
-        border-left: 4px solid #1E88E5;
-        padding: 15px;
-        border-radius: 8px;
-        margin: 10px 0;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -137,7 +125,7 @@ if 'plan_generated' not in st.session_state:
 st.markdown('<div class="big-font">🎒 AI Student Travel Planner</div>', unsafe_allow_html=True)
 
 if AI_AVAILABLE:
-    st.markdown('<span class="ai-badge">✨ Powered by Google Gemini AI</span>', unsafe_allow_html=True)
+    st.markdown(f'<span class="ai-badge">✨ Powered by {model.model_name}</span>', unsafe_allow_html=True)
 else:
     st.markdown('<span class="offline-badge">⚠️ AI Offline - Demo Mode</span>', unsafe_allow_html=True)
 
@@ -196,7 +184,7 @@ with st.sidebar:
             st.rerun()
 
 # =========================
-# AI FUNCTION (FIXED)
+# AI FUNCTION
 # =========================
 def generate_ai_text(prompt: str) -> str | None:
     if not AI_AVAILABLE or model is None:
@@ -205,7 +193,8 @@ def generate_ai_text(prompt: str) -> str | None:
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        st.error(f"❌ AI error: {str(e)[:100]}")
+        # Log to console rather than UI to keep it clean
+        print(f"AI error: {e}")
         return None
 
 # =========================
@@ -213,75 +202,10 @@ def generate_ai_text(prompt: str) -> str | None:
 # =========================
 def get_fallback_content(content_type: str, destination: str, days: int = 3, budget: int = 500) -> str:
     per_day = budget // days
-    
     fallbacks = {
-        "recommendations": f"""
-## 🎒 Budget Travel Tips for {destination}
-
-### ✈️ Transportation
-- Budget airlines (Ryanair, EasyJet, etc.)
-- Book trains in advance for discounts
-- Get multi-day transit passes
-
-### 🏨 Accommodation
-- **Hostels**: $15-40/night
-- **Airbnb**: $30-60/night (shared)
-- **Couchsurfing**: Free!
-
-### 🍕 Budget Food
-- Street food: $3-8/meal
-- Local markets
-- Supermarket meals
-- Lunch specials
-
-### 🎟️ Student Discounts
-- Bring student ID everywhere!
-- Museum free days
-- ISIC card for international discounts
-        """,
-        
-        "itinerary": f"""
-## 📅 {days}-Day Itinerary for {destination}
-
-### Day 1: Arrival
-- Morning: Arrive, check-in
-- Afternoon: Free walking tour
-- Evening: Local market dinner
-- **Cost: ~$40**
-
-### Day 2: Culture
-- Morning: Top attraction
-- Afternoon: Museums
-- Evening: Local restaurant
-- **Cost: ~$50**
-
-### Day 3+: Explore
-- Mix of sights & hidden gems
-- Day trips nearby
-- Local experiences
-- **Cost: ~$45/day**
-
-**Total Estimate: ${days * 45}-${days * 65}**
-        """,
-        
-        "safety": f"""
-## 🛡️ Safety Tips for {destination}
-
-### ⚠️ Common Scams
-- Petition/charity scams
-- Taxi overcharging
-- Fake police
-
-### 🚨 Emergency Prep
-- Save embassy contact
-- Keep document copies
-- Get travel insurance
-
-### 💡 General Tips
-- Stay aware in crowds
-- Use hotel safes
-- Share itinerary with family
-        """
+        "recommendations": f"## 🎒 Budget Travel Tips for {destination}\n- Use student ID for discounts.\n- Opt for hostels or shared Airbnbs.",
+        "itinerary": f"## 📅 {days}-Day Itinerary for {destination}\n- Day 1: City Walk & Local Food.\n- Day 2: Major landmarks.\n- Day 3: Local markets.",
+        "safety": f"## 🛡️ Safety Tips for {destination}\n- Stay aware of surroundings.\n- Keep digital copies of documents."
     }
     return fallbacks.get(content_type, "Content unavailable")
 
@@ -308,53 +232,15 @@ if generate:
         status.text("🔍 Getting recommendations...")
         progress.progress(20)
         
-        recommendations = generate_ai_text(f"""
-You are a student travel expert. Give practical budget travel advice.
-
-Trip: {origin} → {destination}
-Duration: {days} days
-Budget: ${budget} total (${per_day}/day)
-Travelers: {travelers}
-Style: {clean_style}
-Interests: {", ".join(clean_interests)}
-Student ID: {student_id}
-
-Provide:
-1. 🚂 Transportation options
-2. 🏨 Budget accommodation
-3. 📍 Must-visit places
-4. 🍕 Cheap food spots
-5. 🎟️ Student discounts
-6. 💡 Money-saving tips
-
-Use markdown with emojis.
-""")
+        recommendations = generate_ai_text(f"Student travel expert: Provide transport, budget stay, and food for {destination} on ${per_day}/day.")
         progress.progress(50)
 
         status.text("📅 Creating itinerary...")
-        itinerary = generate_ai_text(f"""
-Create a {days}-day itinerary for {destination}.
-Budget: ${per_day}/day
-Interests: {", ".join(clean_interests)}
-
-Format:
-## Day X: Theme
-### 🌅 Morning
-### ☀️ Afternoon  
-### 🌙 Evening
-Daily cost estimate.
-""")
+        itinerary = generate_ai_text(f"Create a {days}-day itinerary for {destination} with interests: {clean_interests}.")
         progress.progress(75)
 
         status.text("🛡️ Getting safety tips...")
-        safety = generate_ai_text(f"""
-Safety tips for students visiting {destination}:
-- Common scams
-- Transport safety
-- Emergency contacts
-- Night safety
-- Health tips
-""")
+        safety = generate_ai_text(f"Safety and scam tips for students in {destination}.")
         progress.progress(100)
         
         status.empty()
@@ -387,9 +273,6 @@ if st.session_state.plan_generated and st.session_state.travel_plan:
     col3.metric("💵 Per Day", f"${meta['per_day']}")
     col4.metric("👥 Travelers", meta['travelers'])
     
-    st.markdown(f"**🗺️ Route:** {meta['origin']} → {meta['destination']}")
-    st.divider()
-
     tab1, tab2, tab3 = st.tabs(["🤖 Recommendations", "🗓️ Itinerary", "🛡️ Safety"])
 
     with tab1:
@@ -399,16 +282,6 @@ if st.session_state.plan_generated and st.session_state.travel_plan:
     with tab3:
         st.markdown(plan["safety"])
     
-    st.divider()
-    st.download_button(
-        "📥 Download Plan",
-        f"# Trip to {meta['destination']}\n\n{plan['recommendations']}\n\n{plan['itinerary']}\n\n{plan['safety']}",
-        f"travel_plan_{meta['destination']}.md",
-        use_container_width=True
-    )
-
+    st.download_button("📥 Download MD Plan", f"# {meta['destination']} Plan\n{plan['itinerary']}", "plan.md")
 else:
-    st.info("👈 Fill in your trip details and click **Generate AI Travel Plan**")
-
-st.divider()
-st.caption("🎒 AI Student Travel Planner | Streamlit + Google Gemini")
+    st.info("👈 Fill in details and click **Generate AI Travel Plan**")
