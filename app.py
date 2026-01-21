@@ -3,27 +3,31 @@ from datetime import datetime, timedelta
 import os
 
 # =========================
-# GOOGLE GEMINI (NEW SDK)
+# GOOGLE GEMINI (FIXED SDK)
 # =========================
 AI_AVAILABLE = False
-client = None
-MODEL_NAME = "gemini-1.5-flash"
+model = None
 
 try:
-    from google import genai
-
+    import google.generativeai as genai
+    
     # For Streamlit Cloud, use st.secrets
     GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY", os.getenv("GOOGLE_API_KEY"))
+    
     if not GOOGLE_API_KEY:
         raise ValueError("GOOGLE_API_KEY not found")
-
-    client = genai.Client(api_key=GOOGLE_API_KEY)
+    
+    genai.configure(api_key=GOOGLE_API_KEY)
+    
+    # Use the correct model
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    # Test the connection
     AI_AVAILABLE = True
 
 except Exception as e:
     AI_AVAILABLE = False
     print(f"❌ Gemini init error: {e}")
-
 # =========================
 # PAGE CONFIG
 # =========================
